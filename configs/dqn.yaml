@@ -1,0 +1,22 @@
+run-title: dqn-1
+environment: CartPole-v0
+device: cuda:0
+
+architecture:
+  - 24
+  - 24
+
+max-experiences: 10_000
+min-experiences: 100
+
+batch-size: 32
+lr: 1.e-3
+weight-decay: 1.e-4
+
+epsilon: 0.5
+decay: 0.9999
+gamma: 0.99
+min-epsilon: 0.1
+episodes: 50_000
+
+copy-step: 25
