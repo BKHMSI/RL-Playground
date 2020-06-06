@@ -1,19 +1,44 @@
+import os 
 import gym
 import yaml
+import random 
 import argparse
 import torch as T
 import numpy as np
 
 from time import sleep
 from tqdm import tqdm
+from collections import namedtuple
 
 from torch import nn
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 
-class DQN(nn.Module):
+Transition = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward'))
+
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.memory = []
+        self.position = 0
+        self.capacity = capacity
+
+    def push(self, *args):
+        """Saves a transition."""
+        if len(self.memory) < self.capacity:
+            self.memory.append(None)
+        self.memory[self.position] = Transition(*args)
+        self.position = (self.position + 1) % self.capacity
+
+    def sample(self, batch_size):
+        return random.sample(self.memory, batch_size)
+
+    def __len__(self):
+        return len(self.memory)
+
+class Q_Network(nn.Module):
     def __init__(self, layers):
-        super(DQN, self).__init__()
+        super(Q_Network, self).__init__()
         network = []
         
         for idx in range(len(layers)-1):
@@ -26,180 +51,163 @@ class DQN(nn.Module):
     def forward(self, state):
         return self.network(state)
 
-
-class DQNAgent:
-    def __init__(self, config, num_states, num_actions):
-        self.batch_size = config["batch-size"]
-        self.gamma = config["gamma"]
-        self.model = DQN([
-            num_states, 
-            *config["architecture"], 
-            num_actions
-        ]).to(config["device"])
-        self.num_actions = num_actions
+class DQN:
+    def __init__(self, config):
+        self.writer = SummaryWriter() 
         self.device = config["device"]
-        self.optim = T.optim.Adam(self.model.parameters(), lr=config["lr"], weight_decay=config["weight-decay"])
-        self.criterion = nn.MSELoss()
-        self.experience = {'s': [], 'a': [], 'r': [], 's_bar': [], 'done': []} # the buffer
-        self.max_experiences = config["max-experiences"]
-        self.min_experiences = config["min-experiences"]
+        self.dqn_type = config["type"]
+        self.run_title = config["run-title"]
+        self.env = gym.make(config["environment"])
 
-    def predict(self, inputs):
-        return self.model(T.from_numpy(inputs).float().to(self.device))
 
-    def train(self, target_net):
-        if len(self.experience['s']) < self.min_experiences:
-            # Only start the training process when we have enough experiences in the buffer
-            return 0
+        self.num_states  = np.prod(self.env.observation_space.shape)
+        self.num_actions = self.env.action_space.n
 
-        # Randomly select n experience in the buffer, where n is the batch-size
-        ids = np.random.randint(low=0, high=len(self.experience['s']), size=self.batch_size)
-        states = np.asarray([self.preprocess(self.experience['s'][i]) for i in ids])
-        actions = np.asarray([self.experience['a'][i] for i in ids])
-        rewards = np.asarray([self.experience['r'][i] for i in ids])
+        layers = [
+            self.num_states, 
+            *config["architecture"], 
+            self.num_actions
+        ]
 
-        # Prepare labels for training process
-        states_next = np.asarray([self.preprocess(self.experience['s_bar'][i]) for i in ids])
-        dones = np.asarray([self.experience['done'][i] for i in ids])
-        value_next = np.max(target_net.predict(states_next).detach().cpu().numpy(), axis=1)
-        actual_values = np.where(dones, rewards, rewards+self.gamma*value_next)
+        self.policy_net = Q_Network(layers).to(self.device)
+        self.target_net = Q_Network(layers).to(self.device)
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.target_net.eval()
 
-        actions = np.expand_dims(actions, axis=1)
-        actions_one_hot = T.FloatTensor(self.batch_size, self.num_actions).zero_()
-        actions_one_hot = actions_one_hot.scatter_(1, T.LongTensor(actions), 1).to(self.device)
-        selected_action_values = T.sum(self.predict(states) * actions_one_hot, dim=1)
-        actual_values = T.FloatTensor(actual_values).to(self.device)
+        self.buffer = ReplayBuffer(config["max-experiences"])
 
-        self.optim.zero_grad()
-        loss = self.criterion(selected_action_values, actual_values)
-        loss.backward()
-        self.optim.step()
+        self.decay_epsilon = lambda e: max(config["epsilon-min"], e * config["epsilon-decay"])
+
+        self.tau = config["tau"]
+        self.gamma = config["gamma"]
+        self.batch_size = config["batch-size"]
+
+        self.optim = T.optim.AdamW(self.policy_net.parameters(), lr=config["lr-init"], weight_decay=config["weight-decay"])
+        self.lr_scheduler = T.optim.lr_scheduler.StepLR(self.optim, step_size=config["lr-step"], gamma=config["lr-gamma"])
+        self.criterion = nn.SmoothL1Loss() # Huber Loss
+        self.min_experiences = max(config["min-experiences"], config["batch-size"])
+
+        self.save_path = config["save-path"]
 
     def get_action(self, state, epsilon):
         """
             Get an action using epsilon-greedy
         """
-        if np.random.random() < epsilon:
+        if np.random.sample() < epsilon:
             return int(np.random.choice(np.arange(self.num_actions)))
         else:
-            prediction = self.predict(np.atleast_2d(self.preprocess(state)))[0].detach().cpu().numpy()
-            return int(np.argmax(prediction))
+            return self.policy_net(T.tensor(state, device=self.device).float()).argmax().item()
 
-    def add_experience(self, exp):
+    def soft_update(self):
         """
-            Used to manage buffer
+            Polyak averaging: soft update model parameters. 
+            θ_target = τ*θ_current + (1 - τ)*θ_target
         """
-        if len(self.experience['s']) >= self.max_experiences:
-            for key in self.experience.keys():
-                self.experience[key].pop(0)
-        for key, value in exp.items():
-            self.experience[key].append(value)
+        for target_param, current_param in zip(self.target_net.parameters(), self.policy_net.parameters()):
+            target_param.data.copy_(self.tau*target_param.data + (1.0-self.tau)*current_param.data)
 
-    def copy_weights(self, train_net):
-        self.model.load_state_dict(train_net.model.state_dict())
+    def optimize(self):
+        if len(self.buffer) < self.min_experiences:
+            return 
 
-    def save_weights(self, path):
-        T.save(self.model.state_dict(), path)
+        transitions = self.buffer.sample(self.batch_size)
+        # transpose the batch --> transition of batch-arrays
+        batch = Transition(*zip(*transitions))
+        # Compute a mask of non-final states and concatenate the batch elements
+        non_final_mask = T.tensor(tuple(map(lambda state: state is not None, batch.next_state)), 
+                                                                device=self.device, dtype=T.bool)  
+        non_final_next_states = T.cat([T.tensor([state]).float() for state in batch.next_state if state is not None]).to(self.device)
 
-    def load_weights(self, path):
-        self.model.load_state_dict(T.load(path))
+        state_batch  = T.tensor(batch.state,  device=self.device).float()
+        action_batch = T.tensor(batch.action, device=self.device).long()
+        reward_batch = T.tensor(batch.reward, device=self.device).float()
 
-    def preprocess(self, state):
-        return state
+        state_action_values = self.policy_net(state_batch).gather(1, action_batch.unsqueeze(1))
+    
+        next_state_values = T.zeros(self.batch_size, device=self.device)
+        if self.dqn_type == "DDQN":
+            self.policy_net.eval()
+            action_next_state = self.policy_net(non_final_next_states).max(1)[1]
+            self.policy_net.train()
+            next_state_values[non_final_mask] = self.target_net(non_final_next_states).gather(1, action_next_state.unsqueeze(1)).squeeze().detach()
+        else:
+            next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
 
+        # Compute the expected Q values
+        expected_state_action_values = (next_state_values * self.gamma) + reward_batch
+        
+        # Compute Huber loss
+        loss = self.criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+        # Optimize the model
+        self.optim.zero_grad()
+        loss.backward()
+        for param in self.policy_net.parameters():
+            param.grad.data.clamp_(-1, 1)
+        self.optim.step()
+        # Update target network
+        self.soft_update()
 
-class Trainer:
-    def __init__(self, config):
-        self.writer = SummaryWriter() 
-        self.run_title = config["run-title"]
-        self.env = gym.make(config["environment"])
-
-        num_states  = np.prod(self.env.observation_space.shape)
-        num_actions = self.env.action_space.n
-
-        self.train_net  = DQNAgent(config, num_states, num_actions)
-        self.target_net = DQNAgent(config, num_states, num_actions)
-
-        self.decay_epsilon = lambda e: max(config["min-epsilon"], e * config["decay"])
-
-    def play_game(self, epsilon, copy_step):
-        rewards, idx = 0, 0
-        done = False
+    def run_episode(self, epsilon):
+        total_reward, done = 0, False
         state = self.env.reset()
         while not done:
             # Using epsilon-greedy to get an action
-            action = self.train_net.get_action(state, epsilon)
-
+            self.policy_net.eval()
+            action = self.get_action(state, epsilon)
             # Caching the information of current state
             prev_state = state
-
             # Take action
             state, reward, done, _ = self.env.step(action)
+            # Accumulate reward
+            total_reward += reward
+            # Store the transition in buffer
+            if done: state = None 
+            self.buffer.push(prev_state, action, state, reward)
+            # Optimize model
+            self.policy_net.train()
+            self.optimize()
 
-            # Apply new rules
-            # if done:
-            #     if reward == 1: # Won
-            #         reward = 20
-            #     elif reward == 0: # Lost
-            #         reward = -20
-            #     else: # Draw
-            #         reward = 10
-            # else:
-            #     # reward = -0.05 # Try to prevent the agent from taking a long move
-            #     # Try to promote the agent to "struggle" when playing against negamax agent
-            #     # as Magolor's (@magolor) idea
-            #     reward = 0.5
+        return total_reward
 
-            rewards += reward
-
-            # Add experience into buffer
-            self.train_net.add_experience({
-                's': prev_state,
-                'a': action,
-                'r': reward,
-                's_bar': state,
-                'done': done
-            })
-
-            # Train the training model by using experiences in buffer and the target model
-            self.train_net.train(self.target_net)
-
-            idx += 1
-
-            if idx % copy_step == 0:
-                # Update the weights of the target model when reaching enough "copy step"
-                self.target_net.copy_weights(self.train_net)
-
-        return rewards
-
-    def train(self, episodes, epsilon, copy_step):
+    def train(self, episodes, epsilon, solved_reward):
         total_rewards = np.zeros(episodes)
         for episode in range(episodes):
+
+            reward = self.run_episode(epsilon)
             epsilon = self.decay_epsilon(epsilon)
-            reward = self.play_game(epsilon, copy_step)
-            
+            self.lr_scheduler.step()
+
             total_rewards[episode] = reward
             avg_reward = total_rewards[max(0, episode-100):(episode+1)].mean()
+            last_lr = self.lr_scheduler.get_last_lr()[0]
 
             self.writer.add_scalar(f'{self.run_title}/reward', reward, episode)
-            self.writer.add_scalar(f'{self.run_title}/epsilon', epsilon, episode)
             self.writer.add_scalar(f'{self.run_title}/reward_100', avg_reward, episode)
+            self.writer.add_scalar(f'{self.run_title}/lr', last_lr, episode)
+            self.writer.add_scalar(f'{self.run_title}/epsilon', epsilon, episode)
 
-            print(f"Episode: {episode} | Last 100 Average Reward: {avg_reward}", end='\r')
+            print(f"Episode: {episode} | Last 100 Average Reward: {avg_reward:.5f} | Learning Rate: {last_lr:.5E} | Epsilon: {epsilon:.5E}", end='\r')
 
-            if avg_reward > 195:
-                self.visualize()
+            if avg_reward > solved_reward:
+                break
+        
+        self.writer.close()
+        print(f"Environment solved in {episode} episodes")
+        T.save(self.policy_net.state_dict(), os.path.join(self.save_path, f"{self.run_title}.pt"))
 
-    def visualize(self):
+    def visualize(self, load_path=None):
         done = False
         state = self.env.reset()
+
+        if load_path is not None:
+            self.policy_net.load_state_dict(T.load(load_path, map_location=self.device))
+        self.policy_net.eval()
+        
         while not done:
             self.env.render()
-            action = self.train_net.get_action(state, -1)
+            action = self.get_action(state, -1)
             state, _, done, _ = self.env.step(int(action))
             sleep(0.01) 
-
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Paramaters')
@@ -209,5 +217,11 @@ if __name__ == "__main__":
     with open(args.config, 'r', encoding="utf-8") as file:
         config = yaml.load(file, Loader=yaml.FullLoader)
 
-    trainer = Trainer(config)
-    trainer.train(episodes=config["episodes"], epsilon=config["epsilon"], copy_step=config["copy-step"])
+    agent = DQN(config)
+
+    if config["train"]:
+        agent.train(episodes=config["episodes"], epsilon=config["epsilon-start"], solved_reward=config["solved-criterion"])
+    
+    if config["visualize"]:
+        for _ in range(config["vis-episodes"]):
+            agent.visualize(config["load-path"])

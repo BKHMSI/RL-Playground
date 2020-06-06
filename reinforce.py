@@ -112,5 +112,5 @@ if __name__ == "__main__":
     with open(args.config, 'r', encoding="utf-8") as file:
         config = yaml.load(file, Loader=yaml.FullLoader)
 
-    trainer = REINFORCE(config)
-    trainer.train(epochs=config["epochs"], episodes=config["episodes"], gamma=config["gamma"], render=config["render"])
+    agent = REINFORCE(config)
+    agent.train(epochs=config["epochs"], episodes=config["episodes"], gamma=config["gamma"], render=config["render"])
