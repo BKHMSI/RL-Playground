@@ -49,8 +49,8 @@ I am planning to write a blog post to accompany this repo, so stay tuned!
         <td><a href="https://arxiv.org/abs/1511.05952">Schaul et al. 2016</a></td>
     </tr>
     <tr>
-        <td><ul><li> [x] Dueling DQN </ul></td>
-        <td>[x] Same as DQN and PER</td>
+        <td><ul><li> [x] <a href="https://github.com/BKHMSI/RL-PyTorch/blob/master/dqn.py"> Dueling DQN </a></ul></td>
+        <td><ul><li> [x] Same as DQN + PER </ul></</td>
         <td><ul><li> [x] CartPole-v0 <li> [x] LunarLander-v2 </ul></td>
         <td><a href="https://arxiv.org/abs/1511.06581">Wang et al. 2016</a></td>
     </tr>
