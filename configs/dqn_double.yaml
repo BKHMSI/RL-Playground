@@ -1,5 +1,5 @@
 ## Run Parameters ##
-run-title: dqn-cartpole-1
+run-title: ddqn-cartpole-1
 train: true 
 
 ## Environment ##
@@ -8,7 +8,7 @@ solved-criterion: 195 # {195, -110, 200, 900}
 max-episode-steps: 200 # {200, 200, 1000, 1000}
 
 ## DQN Variant ##
-dqn-type: vanilla # {vanilla, double, dueling}
+dqn-type: double # {vanilla, double, dueling}
 
 ## Training ##
 batch-size: 32
@@ -45,7 +45,7 @@ epsilon-decay: 0.99
 ## Target Update ##
 use-soft-update: true
 tau: 0.999
-target-update: 10
+target-update: 25
 
 ## Paths ##
 save-path: models

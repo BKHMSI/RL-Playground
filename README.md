@@ -38,20 +38,20 @@ I am planning to write a blog post to accompany this repo, so stay tuned!
     </tr>
     <tr>
         <td><ul><li> [x] <a href="https://github.com/BKHMSI/RL-PyTorch/blob/master/dqn.py">Double DQN</a> </ul> </td>
-        <td><ul><li> [x] Same as above </ul></td>
+        <td><ul><li> [x] Same as DQN </ul></td>
         <td><ul><li> [x] CartPole-v0 <li> [x] LunarLander-v2 </ul></td>
         <td><a href="https://arxiv.org/abs/1509.06461">van Hasselt et al. 2015</a></td>
     </tr>
     <tr>
-        <td><ul><li> [x] <a href="https://github.com/BKHMSI/RL-PyTorch/blob/master/dqn.py">Prioritized Experience Replay</a></ul></td>
-        <td><ul><li> [x] Same as above <li> [x] Proportional Prioritization </ul></td>
+        <td><ul><li> [x] <a href="https://github.com/BKHMSI/RL-PyTorch/blob/master/dqn.py">Prioritized Experience Replay (PER)</a></ul></td>
+        <td><ul><li> [x] Same as DQN <li> [x] Proportional Prioritization </ul></td>
         <td><ul><li> [x] CartPole-v0 <li> [x] LunarLander-v2 </ul></td>
         <td><a href="https://arxiv.org/abs/1511.05952">Schaul et al. 2016</a></td>
     </tr>
     <tr>
-        <td><ul><li> [ ] Dueling DQN </ul></td>
-        <td></td>
-        <td></td>
+        <td><ul><li> [x] Dueling DQN </ul></td>
+        <td>[x] Same as DQN and PER</td>
+        <td><ul><li> [x] CartPole-v0 <li> [x] LunarLander-v2 </ul></td>
         <td><a href="https://arxiv.org/abs/1511.06581">Wang et al. 2016</a></td>
     </tr>
     <tr>

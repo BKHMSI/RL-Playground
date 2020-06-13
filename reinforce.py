@@ -36,7 +36,7 @@ class REINFORCE:
             *config["architecture"], 
             self.env.action_space.n
         ]).to(device)
-        self.optim = T.optim.Adam(self.policy.parameters(), lr=config["lr"], weight_decay=config["weight-decay"])
+        self.optim = T.optim.AdamW(self.policy.parameters(), lr=config["lr"], weight_decay=config["weight-decay"])
         print(self.policy)
 
     def run_episode(self, state, max_iter = 500):

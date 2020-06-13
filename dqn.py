@@ -15,158 +15,44 @@ from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 from common.schedules import LinearSchedule
-from common.segment_tree import MinSegmentTree, SumSegmentTree
-
-Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
-
-class ReplayBuffer:
-    def __init__(self, capacity):
-        """Create Replay buffer.
-        Parameters
-        ----------
-        capacity: int
-            Max number of transitions to store in the buffer. When the buffer
-            overflows the old memories are dropped.
-        """
-        self._memory = []
-        self._position = 0
-        self.capacity = capacity
-
-    def push(self, *args):
-        """Saves a transition."""
-        if len(self._memory) < self.capacity:
-            self._memory.append(None)
-        self._memory[self._position] = Transition(*args)
-        self._position = (self._position + 1) % self.capacity
-
-    def sample(self, batch_size):
-        return random.sample(self._memory, batch_size)
-
-    def _retrieve_sample(self, idxes):
-        return [self._memory[idx] for idx in idxes] 
-
-    def __len__(self):
-        return len(self._memory)
-
-class PrioritizedReplayBuffer(ReplayBuffer):
-    def __init__(self, capacity, alpha):
-        """Create Prioritized Replay buffer.
-        Parameters
-        ----------
-        capacity: int
-            Max number of transitions to store in the buffer. When the buffer
-            overflows the old memories are dropped.
-        alpha: float
-            how much prioritization is used
-            (0 - no prioritization, 1 - full prioritization)
-        See Also
-        --------
-        ReplayBuffer.__init__
-        """
-        super(PrioritizedReplayBuffer, self).__init__(capacity)
-        assert alpha >= 0
-        self._alpha = alpha
-
-        it_capacity = 1
-        while it_capacity < capacity:
-            it_capacity *= 2
-
-        self._it_sum = SumSegmentTree(it_capacity)
-        self._it_min = MinSegmentTree(it_capacity)
-        self._max_priority = 1.0
-
-    def push(self, *args, **kwargs):
-        idx = self._position
-        super().push(*args, **kwargs)
-        self._it_sum[idx] = self._max_priority ** self._alpha
-        self._it_min[idx] = self._max_priority ** self._alpha
-
-    def _sample_proportional(self, batch_size):
-        res = []
-        p_total = self._it_sum.sum(0, len(self) - 1)
-        every_range_len = p_total / batch_size
-        for i in range(batch_size):
-            mass = random.random() * every_range_len + i * every_range_len
-            idx = self._it_sum.find_prefixsum_idx(mass)
-            res.append(idx)
-        return res
-
-    def sample(self, batch_size, beta):
-        """Sample a batch of experiences.
-        compared to ReplayBuffer.sample
-        it also returns importance weights and idxes
-        of sampled experiences.
-        Parameters
-        ----------
-        batch_size: int
-            How many transitions to sample.
-        beta: float
-            To what degree to use importance weights
-            (0 - no corrections, 1 - full correction)
-        Returns
-        -------
-        transitions: [Transition]
-            batch of transitions 
-        weights: np.array
-            Array of shape (batch_size,) and dtype np.float32
-            denoting importance weight of each sampled transition
-        idxes: np.array
-            Array of shape (batch_size,) and dtype np.int32
-            idexes in buffer of sampled experiences
-        """
-        assert beta > 0
-
-        idxes = self._sample_proportional(batch_size)
-
-        weights = []
-        p_min = self._it_min.min() / self._it_sum.sum()
-        max_weight = (p_min * len(self)) ** (-beta)
-
-        for idx in idxes:
-            p_sample = self._it_sum[idx] / self._it_sum.sum()
-            weight = (p_sample * len(self)) ** (-beta)
-            weights.append(weight / max_weight)
-        weights = np.array(weights)
-        transitions = self._retrieve_sample(idxes)
-        return transitions, (weights, idxes)
-
-    def update_priorities(self, idxes, priorities):
-        """Update priorities of sampled transitions.
-        sets priority of transition at index idxes[i] in buffer
-        to priorities[i].
-        Parameters
-        ----------
-        idxes: [int]
-            List of idxes of sampled transitions
-        priorities: [float]
-            List of updated priorities corresponding to
-            transitions at the sampled idxes denoted by
-            variable `idxes`.
-        """
-        assert len(idxes) == len(priorities)
-        for idx, priority in zip(idxes, priorities):
-            assert priority > 0
-            assert 0 <= idx < len(self)
-            self._it_sum[idx] = priority ** self._alpha
-            self._it_min[idx] = priority ** self._alpha
-
-            self._max_priority = max(self._max_priority, priority)
+from common.replay_buffer import ReplayBuffer, PrioritizedReplayBuffer, Transition
 
 class Q_Network(nn.Module):
-    def __init__(self, layers):
+    def __init__(self, dqn_type, layers):
         super(Q_Network, self).__init__()
-        network = []
+        self.dqn_type = dqn_type
         
-        for idx in range(len(layers)-1):
+        network = []
+        for idx in range(len(layers)-3):
             network += [nn.Linear(layers[idx], layers[idx+1])]
-            if idx+2 < len(layers):
-                network += [nn.ReLU()]
+            network += [nn.ReLU()]
        
-        self.network = nn.Sequential(*network)
-    
+        self.body = nn.Sequential(*network)
+
+        if self.dqn_type == "dueling":
+            self.adv_stream = nn.Sequential(
+                nn.Linear(layers[-3], layers[-2]),
+                nn.ReLU(),
+                nn.Linear(layers[-2], layers[-1])
+            )
+
+            self.val_stream = nn.Sequential(
+                nn.Linear(layers[-3], layers[-2]),
+                nn.ReLU(),
+                nn.Linear(layers[-2], 1)
+            )
+        else:
+            self.head = nn.Linear(layers[-2], layers[-1])
+
+
     def forward(self, state):
-        return self.network(state)
+        feats = self.body(state)
+        if self.dqn_type == "dueling":
+            values = self.val_stream(feats)
+            advantages = self.adv_stream(feats)
+            return values + (advantages - advantages.mean(dim=1, keepdims=True))
+        else:
+            return self.head(feats)
 
 class DQN:
     def __init__(self, config):
@@ -186,8 +72,8 @@ class DQN:
             self.num_actions
         ]
 
-        self.policy_net = Q_Network(layers).to(self.device)
-        self.target_net = Q_Network(layers).to(self.device)
+        self.policy_net = Q_Network(self.dqn_type, layers).to(self.device)
+        self.target_net = Q_Network(self.dqn_type, layers).to(self.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
 
@@ -195,11 +81,13 @@ class DQN:
         self.p_replay_eps = config["p-eps"]
         self.prioritized_replay = config["prioritized-replay"]
         self.replay_buffer = PrioritizedReplayBuffer(capacity, config["p-alpha"]) if self.prioritized_replay \
-                 else ReplayBuffer(capacity)
+                        else ReplayBuffer(capacity)
 
         self.beta_scheduler = LinearSchedule(config["episodes"], initial_p=config["p-beta-init"], final_p=1.0)
         self.epsilon_decay = lambda e: max(config["epsilon-min"], e * config["epsilon-decay"])
 
+        self.use_soft_update = config["use-soft-update"]
+        self.target_update = config["target-update"]
         self.tau = config["tau"]
         self.gamma = config["gamma"]
         self.batch_size = config["batch-size"]
@@ -214,21 +102,27 @@ class DQN:
 
     def act(self, state, epsilon=0):
         """
-            Act on environment using epsilon-greedy
+            Act on environment using epsilon-greedy policy
         """
         if np.random.sample() < epsilon:
             return int(np.random.choice(np.arange(self.num_actions)))
         else:
             self.policy_net.eval()
-            return self.policy_net(T.tensor(state, device=self.device).float()).argmax().item()
+            return self.policy_net(T.tensor(state, device=self.device).float().unsqueeze(0)).argmax().item()
 
-    def soft_update(self, tau):
+    def _soft_update(self, tau):
         """
             Polyak averaging: soft update model parameters. 
             θ_target = τ*θ_current + (1 - τ)*θ_target
         """
         for target_param, current_param in zip(self.target_net.parameters(), self.policy_net.parameters()):
             target_param.data.copy_(tau*target_param.data + (1.0-tau)*current_param.data)
+
+    def update_target(self, tau):
+        if self.use_soft_update:
+            self._soft_update(tau)
+        elif self.time_step % self.target_update == 0:
+            self.target_net.load_state_dict(self.policy_net.state_dict())
 
     def optimize(self, beta=None):
         if len(self.replay_buffer) < self.min_experiences:
@@ -256,13 +150,13 @@ class DQN:
         state_action_values = self.policy_net(state_batch).gather(1, action_batch.unsqueeze(1))
     
         next_state_values = T.zeros(self.batch_size, device=self.device)
-        if self.dqn_type == "DDQN":
+        if self.dqn_type == "vanilla":
+            next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
+        else:
             self.policy_net.eval()
             action_next_state = self.policy_net(non_final_next_states).max(1)[1]
             self.policy_net.train()
             next_state_values[non_final_mask] = self.target_net(non_final_next_states).gather(1, action_next_state.unsqueeze(1)).squeeze().detach()
-        else:
-            next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
 
         # compute the expected Q values (RHS of the Bellman equation)
         expected_state_action_values = (next_state_values * self.gamma) + reward_batch
@@ -301,7 +195,7 @@ class DQN:
             # optimize model
             td_error, t_idxes = self.optimize(beta=beta)
             # update target network
-            self.soft_update(self.tau)
+            self.update_target(self.tau)
             # update priorities 
             if self.prioritized_replay and td_error is not None:
                 self.replay_buffer.update_priorities(t_idxes, td_error + self.p_replay_eps)
@@ -327,6 +221,7 @@ class DQN:
             avg_reward = total_rewards[max(0, episode-100):(episode+1)].mean()
             last_lr = self.lr_scheduler.get_last_lr()[0]
 
+            # log into tensorboard
             self.writer.add_scalar(f'{self.run_title}/reward', reward, episode)
             self.writer.add_scalar(f'{self.run_title}/reward_100', avg_reward, episode)
             self.writer.add_scalar(f'{self.run_title}/lr', last_lr, episode)
