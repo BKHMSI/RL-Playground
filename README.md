@@ -13,24 +13,72 @@ I am planning to write a blog post to accompany this repo, so stay tuned!
 
 
 ## Implementations
-| Algorithm                                                                                          | Features                                        | Paper                                                      |
-| :------------------------------------------------------------------------------------------------- |:----------------------------------------------  |:--------------------------------------------------         |
-| <ul><li> [x] [REINFORCE](https://github.com/BKHMSI/RL-PyTorch/blob/master/reinforce.py) </li></ul> | Baseline, Causality                             | [Williams 1992](https://link.springer.com/content/pdf/10.1007/BF00992696.pdf) |
-| <ul><li> [x] [DQN](https://github.com/BKHMSI/RL-PyTorch/blob/master/dqn.py)  </li></ul>            | Huber Loss, Gradient Clipping, Polyak Averaging | [Minh et al. 2013](https://arxiv.org/abs/1312.5602)         |
-| <ul><li> [x] [Double DQN](https://github.com/BKHMSI/RL-PyTorch/blob/master/dqn.py) </li></ul>      | Same as above                                   | [van Hasselt et al. 2015](https://arxiv.org/abs/1509.06461) |
-| <ul><li> [ ] Dueling DQN                                                           </li></ul>      |                                                 | [Wang et al. 2016](https://arxiv.org/abs/1511.06581)        |
-| <ul><li> [ ] A2C                                                               </li></ul>          |                                                 | [Minh el al. 2016](https://arxiv.org/abs/1602.01783)        |
-| <ul><li> [ ] Rainbow                                                          </li></ul>           |                                                 | [Hessel et al. 2017](https://arxiv.org/abs/1710.02298)      |
-| <ul><li> [ ] and many more...                                                 </li></ul>           |                                                 |                                                             |
 
-
-<!-- - [x] [REINFORCE](https://github.com/BKHMSI/RL-PyTorch/blob/master/reinforce.py) (Monte-Carlo Policy Gradient)
-- [x] [DQN](https://github.com/BKHMSI/RL-PyTorch/blob/master/dqn.py) | [Minh et al. 2013](https://arxiv.org/abs/1312.5602)
-- [x] [Double DQN](https://github.com/BKHMSI/RL-PyTorch/blob/master/dqn.py) | [van Hasselt et al. 2015](https://arxiv.org/abs/1509.06461)
-- [ ] Dueling DQN| [Wang et al. 2016](https://arxiv.org/abs/1511.06581)
-- [ ] A2C | [Minh el al. 2016](https://arxiv.org/abs/1602.01783)
-- [ ] Rainbow | [Hessel et al. 2017](https://arxiv.org/abs/1710.02298)
-- [ ] and many more... -->
+<table>
+<thead>
+    <tr>
+        <th align="left">Algorithm</th>
+        <th align="left">Features</th>
+        <th align="left">Solved*</th>
+        <th align="left">Paper</th>
+    </tr>
+</thead>
+<tbody>
+    <tr>
+        <td><ul><li> [x] <a href="https://github.com/BKHMSI/RL-PyTorch/blob/master/reinforce.py">REINFORCE (Monte-Carlo Policy Gradient)</a></li></ul></td>
+        <td><ul><li> [x] Baseline <li> [ ] Causality </ul></td>
+        <td><ul><li> [x] CartPole-v0 <li> [x] LunarLander-v2 </ul></td>
+        <td><a href="https://link.springer.com/content/pdf/10.1007/BF00992696.pdf">Williams 1992</a></td>
+    </tr>
+    <tr>
+        <td><ul><li> [x] <a href="https://github.com/BKHMSI/RL-PyTorch/blob/master/dqn.py">Deep Q-Networks (DQN) </a> </ul> </td>
+        <td><ul><li> [x] Huber Loss <li> [x] Gradient Clipping  <li> [x] Polyak Averaging </ul></td>
+        <td><ul><li> [x] CartPole-v0 <li> [x] LunarLander-v2 </ul></td>
+        <td><a href="https://arxiv.org/abs/1312.5602">Minh et al. 2013</a></td>
+    </tr>
+    <tr>
+        <td><ul><li> [x] <a href="https://github.com/BKHMSI/RL-PyTorch/blob/master/dqn.py">Double DQN</a> </ul> </td>
+        <td><ul><li> [x] Same as above </ul></td>
+        <td><ul><li> [x] CartPole-v0 <li> [x] LunarLander-v2 </ul></td>
+        <td><a href="https://arxiv.org/abs/1509.06461">van Hasselt et al. 2015</a></td>
+    </tr>
+    <tr>
+        <td><ul><li> [x] <a href="https://github.com/BKHMSI/RL-PyTorch/blob/master/dqn.py">Prioritized Experience Replay</a></ul></td>
+        <td><ul><li> [x] Same as above <li> [x] Proportional Prioritization </ul></td>
+        <td><ul><li> [x] CartPole-v0 <li> [x] LunarLander-v2 </ul></td>
+        <td><a href="https://arxiv.org/abs/1511.05952">Schaul et al. 2016</a></td>
+    </tr>
+    <tr>
+        <td><ul><li> [ ] Dueling DQN </ul></td>
+        <td></td>
+        <td></td>
+        <td><a href="https://arxiv.org/abs/1511.06581">Wang et al. 2016</a></td>
+    </tr>
+    <tr>
+        <td><ul><li> [ ] A2C </ul></td>
+        <td></td>
+        <td></td>
+        <td><a href="https://arxiv.org/abs/1602.01783">Minh el al. 2016</a></td>
+    </tr>
+    <tr>
+        <td><ul><li> [ ] Rainbow </ul></td>
+        <td></td>
+        <td></td>
+        <td><a href="https://arxiv.org/abs/1710.02298">Hessel et al. 2017</a></td>
+    </tr>
+    <tr>
+        <td><ul><li> [ ] and many more... </ul></td>
+        <td></td>
+        <td></td>
+        <td></td>
+    </tr>
+</tbody>
+<tfoot>
+    <tr>
+        <td colspan="4"> *These are the environments I attempted to solve using my code so far. The algorithms are certainly capable of solving more (check the attached papers for details). I will be trying them on more diverse environments in the future to evaluate my implementation. </td>
+    </tr>
+</tfoot>
+</table>
 
 
 ## Configurations
