@@ -3,9 +3,9 @@ run-title: p-d2ddqn-cartpole-3
 train: true 
 
 ## Environment ##
-environment: CartPole-v0 # {CartPole-v0, MountainCar-v0, LunarLander-v2, CarRacing-v0}
-solved-criterion: 195 # {195, -110, 200, 900}
-max-episode-steps: 200 # {200, 200, 1000, 1000}
+environment: LunarLander-v2 # {CartPole-v0, MountainCar-v0, LunarLander-v2, CarRacing-v0}
+solved-criterion: 200 # {195, -110, 200, 900}
+max-episode-steps: 1000 # {200, 200, 1000, 1000}
 
 ## DQN Variant ##
 dqn-type: dueling # {vanilla, double, dueling}
@@ -13,7 +13,8 @@ dqn-type: dueling # {vanilla, double, dueling}
 ## Training ##
 batch-size: 32
 gamma: 0.99
-episodes: 500
+episodes: 1000
+train-freq: 4
 
 ## Replay Buffer ##
 max-experiences: 50_000
@@ -27,9 +28,9 @@ p-eps: 1.e-6
 
 ## Network ##
 architecture:
+  - 64
   - 128
-  - 256
-  - 128
+  - 64
 
 ## Optimizer ##
 lr-init: 5.e-4

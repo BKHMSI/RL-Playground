@@ -42,8 +42,11 @@ class Q_Network(nn.Module):
                 nn.Linear(layers[-2], 1)
             )
         else:
-            self.head = nn.Linear(layers[-2], layers[-1])
-
+            self.head = nn.Sequential(
+                nn.Linear(layers[-3], layers[-2]*2),
+                nn.ReLU(),
+                nn.Linear(layers[-2]*2, layers[-1])
+            )
 
     def forward(self, state):
         feats = self.body(state)
@@ -86,6 +89,7 @@ class DQN:
         self.beta_scheduler = LinearSchedule(config["episodes"], initial_p=config["p-beta-init"], final_p=1.0)
         self.epsilon_decay = lambda e: max(config["epsilon-min"], e * config["epsilon-decay"])
 
+        self.train_freq = config["train-freq"]
         self.use_soft_update = config["use-soft-update"]
         self.target_update = config["target-update"]
         self.tau = config["tau"]
@@ -134,7 +138,7 @@ class DQN:
             transitions, (is_weights, t_idxes) = self.replay_buffer.sample(self.batch_size, beta)
         else:
             transitions = self.replay_buffer.sample(self.batch_size)
-            is_weights, t_idxes = T.ones(self.batch_size), None
+            is_weights, t_idxes = np.ones(self.batch_size), None
 
         # transpose the batch --> transition of batch-arrays
         batch = Transition(*zip(*transitions))
@@ -193,12 +197,13 @@ class DQN:
             if done: state = None 
             self.replay_buffer.push(prev_state, action, state, reward)
             # optimize model
-            td_error, t_idxes = self.optimize(beta=beta)
+            if self.time_step % self.train_freq == 0:
+                td_error, t_idxes = self.optimize(beta=beta)
+                # update priorities 
+                if self.prioritized_replay and td_error is not None:
+                    self.replay_buffer.update_priorities(t_idxes, td_error + self.p_replay_eps)
             # update target network
             self.update_target(self.tau)
-            # update priorities 
-            if self.prioritized_replay and td_error is not None:
-                self.replay_buffer.update_priorities(t_idxes, td_error + self.p_replay_eps)
             # increment time-step
             self.time_step += 1
 
@@ -222,10 +227,10 @@ class DQN:
             last_lr = self.lr_scheduler.get_last_lr()[0]
 
             # log into tensorboard
-            self.writer.add_scalar(f'{self.run_title}/reward', reward, episode)
-            self.writer.add_scalar(f'{self.run_title}/reward_100', avg_reward, episode)
-            self.writer.add_scalar(f'{self.run_title}/lr', last_lr, episode)
-            self.writer.add_scalar(f'{self.run_title}/epsilon', epsilon, episode)
+            self.writer.add_scalar(f'dqn-{self.dqn_type}/reward', reward, episode)
+            self.writer.add_scalar(f'dqn-{self.dqn_type}/reward_100', avg_reward, episode)
+            self.writer.add_scalar(f'dqn-{self.dqn_type}/lr', last_lr, episode)
+            self.writer.add_scalar(f'dqn-{self.dqn_type}/epsilon', epsilon, episode)
 
             print(f"Episode: {episode} | Last 100 Average Reward: {avg_reward:.5f} | Learning Rate: {last_lr:.5E} | Epsilon: {epsilon:.5E}", end='\r')
 
@@ -233,6 +238,7 @@ class DQN:
                 break
         
         self.writer.close()
+
         print(f"Environment solved in {episode} episodes")
         T.save(self.policy_net.state_dict(), os.path.join(self.save_path, f"{self.run_title}.pt"))
 
@@ -259,7 +265,6 @@ if __name__ == "__main__":
         config = yaml.load(file, Loader=yaml.FullLoader)
 
     agent = DQN(config)
-
     if config["train"]:
         agent.train(episodes=config["episodes"], epsilon=config["epsilon-start"], solved_reward=config["solved-criterion"])
     
