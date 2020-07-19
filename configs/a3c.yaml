@@ -1,0 +1,27 @@
+run-title: a3c-pong-1
+seed: 1111
+train: true
+resume: false
+save-interval: 25
+device: cpu
+
+### environment ###
+environment: PongDeterministic-v4
+num-steps: 20
+max-episode-length: 1_000_000
+
+### agent ###
+num-workers: 16
+init-lr: 0.0001
+gamma: 0.99
+gae-lambda: 1.00
+entropy-coef: 0.01
+val-loss-coef: 0.5
+max-grad-norm: 50
+
+### paths ###
+save-path: models
+log-path: logs
+
+
+

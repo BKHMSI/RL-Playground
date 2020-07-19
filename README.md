@@ -55,9 +55,9 @@ I am planning to write a blog post to accompany this repo, so stay tuned!
         <td><a href="https://arxiv.org/abs/1511.06581">Wang et al. 2016</a></td>
     </tr>
     <tr>
-        <td><ul><li> [ ] A2C </ul></td>
-        <td></td>
-        <td></td>
+        <td><ul><li> <a href="https://github.com/BKHMSI/RL-PyTorch/blob/master/dqn.py"> [x] A3C </a> </ul></td>
+        <td>[x] Generalized Advantage Estimation</td>
+         <td><code><ul><li> [x] PongDeterministic-v4 </ul></code></td>
         <td><a href="https://arxiv.org/abs/1602.01783">Minh el al. 2016</a></td>
     </tr>
     <tr>
